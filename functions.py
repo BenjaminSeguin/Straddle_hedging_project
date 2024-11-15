@@ -23,10 +23,10 @@ def delta_hedging(straddles_df, option_df, market_df, transaction_cost=0):
         put_delta_series = put_deltas.loc[put_id]
 
         # Initial values
-        total_cost = row['Total_Cost']
+        initial_proceeds = row['Initial Proceeds']
         underlying_price = row['Underlying Price']
         delta0 = -(row['Call_Delta'] + row['Put_Delta'])
-        initial_cash = total_cost - delta0 * underlying_price
+        initial_cash = initial_proceeds - delta0 * underlying_price
 
         # Initialize intermediate values
         prev_delta = delta0
@@ -64,17 +64,20 @@ def delta_hedging(straddles_df, option_df, market_df, transaction_cost=0):
             prev_delta = curr_delta
 
         # Calculate payoff for the short straddle at expiration
-        payoff = max(0, strike_price - current_price) + max(0, current_price - strike_price)
+        payoff = max(current_price - strike_price, strike_price - current_price)
 
         # Adjust the final value to account for the payoff
         final_value = portfolio_values[-1] - payoff
 
+        hedging_error = final_value**2 
+
         results.append({
             'Date': index,
-            'Initial Value': total_cost,
-            'Final Value': final_value,
-            'Hedged_Position': pd.DataFrame({'Date': full_calendar[:len(hedged_positions)], 'Hedged_Position': hedged_positions}),
-            'Value': pd.DataFrame({'Date': full_calendar[:len(portfolio_values)], 'Value': portfolio_values})
+            'Initial Value': initial_proceeds,
+            'Final Cash Value': portfolio_values[-1],
+            'Payoff': payoff,
+            'Hedging Error': hedging_error,
+            'P&L': final_value,
         })
 
     return pd.DataFrame(results)
@@ -115,7 +118,8 @@ def create_straddles(groups):
                     'D to Expiration': int(day_to_exp),
                     'Call_Midprice': call['Midprice'].values[0],
                     'Put_Midprice': put['Midprice'].values[0],
-                    'Total_Cost': call['Midprice'].values[0] + put['Midprice'].values[0],
+                    'Contract Size': call['contract_size'].values[0],
+                    'Initial Proceeds': call['Midprice'].values[0] + put['Midprice'].values[0],
                     'Underlying Price': call['Close'].values[0],
                     'Call_Delta': call['delta'].values[0],
                     'Put_Delta': put['delta'].values[0],
