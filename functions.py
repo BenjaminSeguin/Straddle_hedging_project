@@ -125,7 +125,8 @@ def create_straddles(groups):
                     'Put_Delta': put['delta'].values[0],
                     'Call_Optionid': call['optionid'].values[0],
                     'Put_Optionid': put['optionid'].values[0],
-                    'Moneyness': call['Moneyness'].values[0]
+                    'Moneyness': call['Moneyness'].values[0],
+                    'Expiration Date': call['exdate'].values[0]
                 }
                 straddles.append(straddle)
     
