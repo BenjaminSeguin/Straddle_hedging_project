@@ -17,7 +17,7 @@ filtered_sp.index = pd.to_datetime(filtered_sp.index).tz_localize(None)
 filtered_sp
 
 # Read option data from WRDS
-data_options = pd.read_csv("data_option_SP.csv")
+data_options = pd.read_csv("data_option_SP500.csv")
 
 data_options['date'] = pd.to_datetime(data_options['date'])
 data_options['exdate'] = pd.to_datetime(data_options['exdate'])
@@ -42,5 +42,45 @@ mask_money = (full_data['Moneyness'] > 0.9) & (full_data['Moneyness'] < 1.1)
 mask_time = (full_data['D to Expiration'] < 40)
 data_atm = full_data[mask_money & mask_time]
 
-# data_atm.to_csv("cleaned_data.csv", index=True)
+def filter_data(df):
+    result = pd.DataFrame()
+    selected_optionids = set()
+    
+    for date, group in df.groupby(df.index):
+        # Separate calls and puts
+        calls = group[group['cp_flag'] == 'C']
+        puts = group[group['cp_flag'] == 'P']
+        
+        # Define maturity groups
+        maturity_groups = {
+            '1_day': (0, 3),
+            '1_week': (4, 14),
+            '1_month': (23, 37)
+        }
+        
+        # Find the closest moneyness to 1 for each maturity group
+        for group_name, (min_days, max_days) in maturity_groups.items():
+            # Filter options within the maturity group
+            available_calls = calls[(calls['D to Expiration'] >= min_days) & (calls['D to Expiration'] <= max_days)]
+            available_puts = puts[(puts['D to Expiration'] >= min_days) & (puts['D to Expiration'] <= max_days)]
+            
+            if not available_calls.empty:
+                # Select the call with moneyness closest to 1
+                closest_call = available_calls.iloc[(available_calls['Moneyness'] - 1).abs().argsort()[:1]]
+                selected_optionids.add(closest_call['optionid'].values[0])
+            
+            if not available_puts.empty:
+                # Select the put with moneyness closest to 1
+                closest_put = available_puts.iloc[(available_puts['Moneyness'] - 1).abs().argsort()[:1]]
+                selected_optionids.add(closest_put['optionid'].values[0])
+    
+    # Include all rows related to the selected optionids
+    result = df[df['optionid'].isin(selected_optionids)]
+    
+    return result
+
+# Apply the filter function
+filtered_data = filter_data(data_atm)
+
+filtered_data.to_csv('filtered_data.csv')
 
