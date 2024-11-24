@@ -496,7 +496,7 @@ def apply_hedging_model(first_straddles_monthly, option_df, real_market_df, mode
         pnl = portfolio_value_T + straddle_payoff  # Total P&L from hedging and straddle payoff
 
         # Hedging error
-        hedging_error = (portfolio_value_T + straddle_payoff) ** 2
+        hedging_error = (portfolio_value_T - straddle_payoff) ** 2
 
         # Store results
         results.append({
