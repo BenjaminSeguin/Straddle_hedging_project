@@ -454,6 +454,12 @@ def apply_hedging_model(first_straddles_monthly, option_df, real_market_df, mode
                 'StrikePrice': strike_price,
                 'UnderlyingPrice': S_t,
                 'RiskFreeRate': rf,
+                'CallVega': call_data['vega'].values[0],
+                'PutVega': put_data['vega'].values[0],
+                'CallTheta': call_data['theta'].values[0],
+                'PutTheta': put_data['theta'].values[0],
+                'StraddleTheta': -(call_data['theta'].values[0] + put_data['theta'].values[0]),
+                'StraddleVega': -(call_data['vega'].values[0] + put_data['vega'].values[0]),
             }
 
             # Convert state variables to DataFrame
