@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
 from pandas.tseries.offsets import CustomBusinessDay
 from pandas.tseries.holiday import USFederalHolidayCalendar
 from sklearn.ensemble import RandomForestRegressor
@@ -64,11 +65,11 @@ def delta_hedging(straddles_df, option_df, market_df, transaction_cost=0):
             portfolio_values.append(portfolio_value)
 
             # Update deltas for the next iteration
-            prev_prev_delta = prev_delta
             prev_delta = curr_delta
 
-        # Calculate payoff for the short straddle at expiration
-        payoff = max(current_price - strike_price, strike_price - current_price)
+        expiration_date = index + pd.offsets.BusinessDay(int(row['D to Expiration']))
+        S_T = sp_prices.loc[expiration_date]
+        payoff = max(S_T - strike_price, 0) + max(strike_price - S_T, 0)
 
         # Adjust the final value to account for the payoff
         final_value = portfolio_values[-1] - payoff
@@ -354,25 +355,47 @@ def train_random_forest_model(training_data_df):
     print(f"Best parameters: {grid_search.best_params_}")
     return best_rf
 
-def apply_hedging_model(first_straddles_monthly, option_df, real_market_df, model, transaction_cost=0):
+def get_feature_importance(model, feature_names):
     """
-    Apply the trained hedging model to the test set and calculate P&L for each straddle.
+    Get feature importance from a trained random forest model.
 
     Parameters:
-    - first_straddles_monthly: DataFrame containing the monthly straddles to hedge.
-    - option_df: DataFrame containing daily option data.
-    - real_market_df: DataFrame containing daily underlying price and risk-free rate data.
-    - model: Trained regression model that predicts phi from state variables.
-    - transaction_cost: Transaction cost per unit traded.
+    - model: Trained random forest model.
+    - feature_names: List of feature names.
 
     Returns:
-    - results_df: DataFrame with hedging results for each straddle.
+    - feature_importance_df: DataFrame with features and their importance scores.
     """
+    importances = model.feature_importances_
+    feature_importance_df = pd.DataFrame({
+        'Feature': feature_names,
+        'Importance': importances
+    }).sort_values(by='Importance', ascending=False)
+    return feature_importance_df
+
+def plot_feature_importance(feature_importance_df):
+    """
+    Plot feature importance.
+
+    Parameters:
+    - feature_importance_df: DataFrame with features and their importance scores.
+    """
+    plt.figure(figsize=(10, 6))
+    plt.barh(feature_importance_df['Feature'], feature_importance_df['Importance'])
+    plt.xlabel('Importance')
+    plt.ylabel('Feature')
+    plt.title('Feature Importance')
+    plt.gca().invert_yaxis()
+    return plt.show()
+
+def apply_hedging_model(first_straddles_monthly, option_df, real_market_df, model, transaction_cost=0):
+
     results = []
 
     us_bd = CustomBusinessDay(calendar=USFederalHolidayCalendar())
 
     for index, row in first_straddles_monthly.iterrows():
+
         # Convert start_date and expiration_date to datetime
         start_date = pd.to_datetime(index)
         expiration_date = pd.to_datetime(row['Expiration Date'])
@@ -389,31 +412,26 @@ def apply_hedging_model(first_straddles_monthly, option_df, real_market_df, mode
         # Initialize variables
         cash = initial_proceeds  # Initial proceeds from selling the straddle
         prev_phi = 0
-
-        # Initialize a list to store daily results
-        daily_results = []
+        total_transaction_costs = 0  # Track total transaction costs for this straddle
 
         for t in range(len(business_dates) - 1):
             current_date = business_dates[t]
             next_date = business_dates[t + 1]
 
-            # Ensure current_date is a datetime object
-            current_date = pd.to_datetime(current_date)
-
             # Access market data directly
             try:
                 S_t = real_market_df.loc[current_date, 'Close']
-                S_t1 = real_market_df.loc[next_date, 'Close']
                 rf = real_market_df.loc[current_date, 'RF']
-            except KeyError:
-                continue  # Skip if market data is missing
+            except KeyError as e:
+                print(f"Market data missing for dates {current_date} or {next_date}: {e}")
+                continue
 
             # Retrieve option data for current_date
             call_data = option_df[(option_df['optionid'] == call_optionid) & (option_df.index == current_date)]
             put_data = option_df[(option_df['optionid'] == put_optionid) & (option_df.index == current_date)]
 
             if call_data.empty or put_data.empty:
-                continue  # Skip if option data is missing
+                continue
 
             # Extract option prices
             call_price = call_data['Midprice'].values[0]
@@ -430,11 +448,14 @@ def apply_hedging_model(first_straddles_monthly, option_df, real_market_df, mode
             gamma_call = call_data['gamma'].values[0]
             delta_put = put_data['delta'].values[0]
             gamma_put = put_data['gamma'].values[0]
-            straddle_delta = delta_call + delta_put
-            straddle_gamma = gamma_call + gamma_put
+            straddle_delta = -(delta_call + delta_put)
+            straddle_gamma = -(gamma_call + gamma_put)
 
             # Calculate time to expiration in business days
-            time_to_expiration = np.busday_count(current_date, expiration_date)
+            time_to_expiration = np.busday_count(
+            np.datetime64(current_date, 'D'), 
+            np.datetime64(expiration_date, 'D')
+)
             time_to_expiration = max(time_to_expiration, 1)
 
             # Calculate moneyness
@@ -469,40 +490,39 @@ def apply_hedging_model(first_straddles_monthly, option_df, real_market_df, mode
             phi_t = model.predict(state_df)[0]
 
             # Update cash with hedge change
-            phi_change = phi_t - prev_phi
-            cash = cash * np.exp(rf / 252) + phi_change * S_t - transaction_cost * abs(phi_change) * S_t
+            phi_change = prev_phi - phi_t
+            transaction_costs = transaction_cost * abs(phi_change) * S_t
+            total_transaction_costs += transaction_costs  # Accumulate total transaction costs
 
-            # Store daily results
-            daily_results.append({
-                'Date': current_date,
-                'Cash': cash,
-                'Phi': phi_t,
-                'UnderlyingPrice': S_t,
-                'StraddlePrice': straddle_price_t,
-                **state_variables
-            })
+            # Update cash with hedge change
+            cash = cash * np.exp(rf / 252) + phi_change * S_t - transaction_costs
+
+            hedged_position = phi_t * S_t
+
+            portfolio_value = cash + hedged_position
 
             # Update prev_phi for next iteration
             prev_phi = phi_t
 
         # At expiration
-        final_date = business_dates[-1]
+        final_date = expiration_date
         try:
             S_T = real_market_df.loc[final_date, 'Close']
-        except KeyError:
-            continue  # Skip if market data is missing
+        except KeyError as e:
+            print(f"Market data missing for final date {final_date}: {e}")
+            continue
 
         # Calculate straddle payoff at expiration (short straddle)
-        straddle_payoff = - (max(S_T - strike_price, 0) + max(strike_price - S_T, 0))  # Negative because it's a short position
+        straddle_payoff = max(S_T - strike_price, 0) + max(strike_price - S_T, 0) 
 
         # Final portfolio value
-        portfolio_value_T = cash * np.exp(rf / 252) + prev_phi * S_T  # Update cash one last time
+        portfolio_value_T = cash + prev_phi * S_T  # Update cash one last time
 
         # P&L calculation
-        pnl = portfolio_value_T + straddle_payoff  # Total P&L from hedging and straddle payoff
+        pnl = portfolio_value_T - straddle_payoff  # Total P&L from hedging and straddle payoff
 
         # Hedging error
-        hedging_error = (portfolio_value_T + straddle_payoff) ** 2 # We use + because straddle_payoff is negative
+        hedging_error = (portfolio_value_T - straddle_payoff) ** 2  
 
         # Store results
         results.append({
@@ -512,13 +532,15 @@ def apply_hedging_model(first_straddles_monthly, option_df, real_market_df, mode
             'Final Portfolio Value': portfolio_value_T,
             'Straddle Payoff': straddle_payoff,
             'Hedging Error': hedging_error,
-            'P&L': pnl
+            'P&L': pnl,
+            'Total Transaction Costs': total_transaction_costs,  # Include total transaction costs
         })
 
     # Convert results to DataFrame
     results_df = pd.DataFrame(results)
 
     return results_df
+
 
 def select_atm_options(df, maturity_days):
     """
