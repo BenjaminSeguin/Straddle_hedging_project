@@ -285,6 +285,7 @@ def dp_hedging_collect_training_data(straddles_monthly, option_df, real_market_d
                 'PutTheta': put_data['theta'].values[0],
                 'StraddleTheta': -(call_data['theta'].values[0] + put_data['theta'].values[0]),
                 'StraddleVega': -(call_data['vega'].values[0] + put_data['vega'].values[0]),
+                'StraddlePrice': straddle_price_t,
             }
 
             # Define objective function for dynamic programming
@@ -481,6 +482,7 @@ def apply_hedging_model(first_straddles_monthly, option_df, real_market_df, mode
                 'PutTheta': put_data['theta'].values[0],
                 'StraddleTheta': -(call_data['theta'].values[0] + put_data['theta'].values[0]),
                 'StraddleVega': -(call_data['vega'].values[0] + put_data['vega'].values[0]),
+                'StraddlePrice': straddle_price_t,
             }
 
             # Convert state variables to DataFrame
@@ -542,163 +544,3 @@ def apply_hedging_model(first_straddles_monthly, option_df, real_market_df, mode
     return results_df
 
 
-def select_atm_options(df, maturity_days):
-    """
-    Select ATM options (moneyness closest to 1) for the specified maturity.
-    """
-    # Reset index to make Date a column
-    df = df.reset_index()
-    
-    # Filter options with the specified maturity
-    filtered = df[df['D to Expiration'] == maturity_days].copy()
-    
-    if filtered.empty:
-        return pd.DataFrame()
-        
-    # Compute absolute moneyness difference
-    filtered['Moneyness_Diff'] = abs(filtered['Moneyness'] - 1)
-    
-    # Sort by moneyness difference and group by Date and cp_flag
-    atm_options = (
-        filtered.sort_values(by=['Date', 'cp_flag', 'Moneyness_Diff'])
-        .groupby(['Date', 'cp_flag'])
-        .first()
-        .reset_index()
-    )
-    
-    # Add expiration date
-    atm_options['Expiration_Date'] = atm_options['Date'] + pd.to_timedelta(atm_options['D to Expiration'], unit='D')
-    
-    return atm_options[['Date', 'cp_flag', 'optionid', 'strike_price', 'D to Expiration', 'Expiration_Date']]
-
-def create_straddle_tracking_dataset(df):
-    """
-    Create a dataset to track selected ATM options at initiation.
-    """
-    # Reset index to make Date a column and create a copy
-    df = df.reset_index().copy()
-    
-    # Sort the DataFrame
-    df = df.sort_values(by=['Date', 'cp_flag', 'Moneyness'])
-    
-    # Select ATM options for different maturities
-    atm_1d = select_atm_options(df, maturity_days=2)
-    atm_1w = select_atm_options(df, maturity_days=7)
-    atm_1m = select_atm_options(df, maturity_days=30)
-    
-    # Combine all selected options
-    atm_options = pd.concat([atm_1d, atm_1w, atm_1m], ignore_index=True)
-    if atm_options.empty:
-        print("No ATM options found.")
-        return pd.DataFrame()
-        
-    atm_options['Maturity'] = atm_options['D to Expiration'].map({2: '1D', 7: '1W', 30: '1M'})
-    
-    # Return the selected ATM options at initiation
-    return atm_options
-
-def compute_straddle_returns(atm_options, data):
-    """
-    Compute delta-hedged straddle returns using the raw data for price history.
-
-    Parameters:
-    - atm_options (pd.DataFrame): DataFrame containing selected ATM options at initiation.
-    - data (pd.DataFrame): Raw unfiltered dataset containing options data.
-
-    Returns:
-    - pd.DataFrame: A DataFrame containing straddle returns.
-    """
-    # Ensure the raw data has Date as a column
-    data = data.reset_index()
-    
-    # Ensure Date columns are of datetime type
-    atm_options['Date'] = pd.to_datetime(atm_options['Date'])
-    atm_options['Expiration_Date'] = pd.to_datetime(atm_options['Expiration_Date'])
-    data['Date'] = pd.to_datetime(data['Date'])
-    
-    # Initialize a list to store computed straddle returns
-    straddle_returns = []
-    
-    # Group the ATM options by initiation Date and Maturity
-    grouped = atm_options.groupby(['Date', 'Maturity'])
-    
-    for (init_date, maturity), group in grouped:
-        print(f"Processing initiation Date: {init_date.date()}, Maturity: {maturity}")
-        
-        # Get call and put option IDs
-        call_optionid = group[group['cp_flag'] == 'C']['optionid'].values
-        put_optionid = group[group['cp_flag'] == 'P']['optionid'].values
-        
-        if len(call_optionid) == 0 or len(put_optionid) == 0:
-            print(f"Missing call or put for Date: {init_date.date()}, Maturity: {maturity}. Skipping.")
-            continue
-        
-        call_optionid = call_optionid[0]
-        put_optionid = put_optionid[0]
-        
-        expiration_date = group['Expiration_Date'].iloc[0]
-        
-        # Get initial data for call and put from the raw data
-        call_init = data[(data['Date'] == init_date) & (data['optionid'] == call_optionid)]
-        put_init = data[(data['Date'] == init_date) & (data['optionid'] == put_optionid)]
-        
-        if call_init.empty or put_init.empty:
-            print(f"Initial data missing for call or put on Date: {init_date.date()}, Maturity: {maturity}. Skipping.")
-            continue
-        
-        call_init = call_init.iloc[0]
-        put_init = put_init.iloc[0]
-        
-        # Use initial delta to compute hedge ratio
-        try:
-            hedge_ratio = call_init['delta'] / (1 - call_init['delta'])
-        except ZeroDivisionError:
-            print(f"ZeroDivisionError for Date: {init_date.date()}, Maturity: {maturity}. Skipping.")
-            continue
-        
-        # Get price history for the call and put options from raw data
-        call_data = data[(data['optionid'] == call_optionid) & 
-                         (data['Date'] >= init_date) & 
-                         (data['Date'] <= expiration_date)]
-        put_data = data[(data['optionid'] == put_optionid) & 
-                        (data['Date'] >= init_date) & 
-                        (data['Date'] <= expiration_date)]
-        
-        if call_data.empty or put_data.empty:
-            print(f"No price history found for call or put options from Date: {init_date.date()} to {expiration_date.date()}. Skipping.")
-            continue
-        
-        # Get the last available date before expiration with data
-        last_date = min(call_data['Date'].max(), put_data['Date'].max())
-        if pd.isnull(last_date) or last_date == init_date:
-            print(f"No data available after initiation for Date: {init_date.date()}, Maturity: {maturity}. Skipping.")
-            continue
-        
-        # Get prices at initiation and at last_date
-        call_price_init = call_init['Close']
-        put_price_init = put_init['Close']
-        
-        call_price_close = call_data[call_data['Date'] == last_date]['Close'].values[0]
-        put_price_close = put_data[put_data['Date'] == last_date]['Close'].values[0]
-        
-        # Calculate straddle values at initiation and close
-        straddle_value_init = call_price_init + hedge_ratio * put_price_init
-        straddle_value_close = call_price_close + hedge_ratio * put_price_close
-        
-        # Compute return
-        ret = (straddle_value_close - straddle_value_init) / straddle_value_init
-        
-        # Append result
-        straddle_returns.append({
-            'Initiation_Date': init_date,
-            'Maturity': maturity,
-            'Expiration_Date': expiration_date,
-            'Return': ret
-        })
-    
-    # Create a DataFrame from the calculated returns
-    result_df = pd.DataFrame(straddle_returns)
-    print("Final straddle returns DataFrame:")
-    print(result_df.head())
-    
-    return result_df
