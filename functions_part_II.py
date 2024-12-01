@@ -286,6 +286,12 @@ def dp_hedging_collect_training_data(straddles_monthly, option_df, real_market_d
                 'StraddleTheta': -(call_data['theta'].values[0] + put_data['theta'].values[0]),
                 'StraddleVega': -(call_data['vega'].values[0] + put_data['vega'].values[0]),
                 'StraddlePrice': straddle_price_t,
+                'RV_1D': call_data['RV_1D'].values[0],
+                'RET_1D': call_data['RET_1D'].values[0],
+                'RET_1M': call_data['RET_1M'].values[0],
+                'IV_Butterfly': call_data['IV_Butterfly'].values[0],
+                'IV_TERM_3M_1M': call_data['IV_TERM_3M_1M'].values[0],
+                'CRUDE_OIL_YoY': call_data['CRUDE_OIL_YoY'].values[0],
             }
 
             # Define objective function for dynamic programming
@@ -483,6 +489,12 @@ def apply_hedging_model(first_straddles_monthly, option_df, real_market_df, mode
                 'StraddleTheta': -(call_data['theta'].values[0] + put_data['theta'].values[0]),
                 'StraddleVega': -(call_data['vega'].values[0] + put_data['vega'].values[0]),
                 'StraddlePrice': straddle_price_t,
+                'RV_1D': call_data['RV_1D'].values[0],
+                'RET_1D': call_data['RET_1D'].values[0],
+                'RET_1M': call_data['RET_1M'].values[0],
+                'IV_Butterfly': call_data['IV_Butterfly'].values[0],
+                'IV_TERM_3M_1M': call_data['IV_TERM_3M_1M'].values[0],
+                'CRUDE_OIL_YoY': call_data['CRUDE_OIL_YoY'].values[0],
             }
 
             # Convert state variables to DataFrame

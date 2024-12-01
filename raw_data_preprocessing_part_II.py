@@ -82,5 +82,5 @@ def filter_data(df):
 # Apply the filter function
 filtered_data = filter_data(data_atm)
 
-filtered_data.to_csv('filtered_data.csv')
+filtered_data.to_csv('filtered_data_cleaned.csv')
 
