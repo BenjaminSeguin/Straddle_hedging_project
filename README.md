@@ -31,12 +31,10 @@ To minimize the **hedging error** when replicating a short straddle using differ
 - **Delta Hedging** (Black-Scholes-based)
 - **Static Hedging** (no rebalancing)
 - **ML-Driven Hedging** using Random Forests to predict optimal hedge ratios
-- **Optimization-Based Hedging** (minimizing portfolio tracking error via grid search)
 
 ### 4. **Evaluation Metrics**
 - Final replication error distribution (Mean, Std Dev)
 - Hedging cost over time
-- Worst-case drawdowns and Value-at-Risk (VaR)
 
 ---
 
@@ -46,15 +44,12 @@ To minimize the **hedging error** when replicating a short straddle using differ
 - Delta hedging tended to underperform in presence of skew and stochastic volatility.
 - Random Forest-based hedge ratio prediction was particularly effective in reducing extreme tail errors.
 
-> Full plots and error metrics are available in the `outputs/` folder.
-
 ---
 
 ## 📦 Tools & Dependencies
 
 - Python, NumPy, Pandas, Matplotlib
 - Scikit-learn (Random Forests)
-- Joblib for parallel simulations
 
 ---
 
