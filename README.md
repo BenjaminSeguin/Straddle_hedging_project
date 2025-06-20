@@ -22,10 +22,10 @@ To minimize the **hedging error** when replicating a short straddle using differ
 - Instrument: 1-month short straddle (ATM call + ATM put)
 - Hedge instruments: Underlying asset + risk-free asset
 
-### 2. **Simulation Framework**
-- Generate 1000 Monte Carlo price paths per month (2007–2023)
-- Use historical volatility + drift estimates to calibrate the stochastic process
-- Simulate daily hedging using various strategies over the life of the option
+### 2. **Hedging Framework**
+- Compute optimal hedging ratio at each point in time to create an objective in the training set
+- Use the objective in the training set to train the random forest in a supervised way
+- Apply the trained random forest to monthly and daily data in the test set
 
 ### 3. **Hedging Strategies Compared**
 - **Delta Hedging** (Black-Scholes-based)
